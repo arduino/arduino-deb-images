@@ -1,0 +1,11 @@
+--- /etc/lightdm/lightdm-gtk-greeter.conf	2025-06-25 18:39:16.880958300 +0000
++++ lightdm-gtk-greeter.conf	2025-06-25 18:50:26.679549535 +0000
+@@ -57,7 +57,7 @@
+ #  transition-duration = overrides default value
+ #
+ [greeter]
+-#background=
++background=/usr/share/backgrounds/NoLogo-BackgroundNeutral.jpg
+ #user-background=
+ #theme-name=
+ #icon-theme-name=

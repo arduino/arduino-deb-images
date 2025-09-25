@@ -1,0 +1,39 @@
+diff --git a/arduino_artifacts/etc/xdg/xfce4/panel/default.xml b/arduino_artifacts/etc/xdg/xfce4/panel/default.xml
+index 289a8de..a56fd60 100755
+--- a/arduino_artifacts/etc/xdg/xfce4/panel/default.xml
++++ b/arduino_artifacts/etc/xdg/xfce4/panel/default.xml
+@@ -16,7 +16,6 @@
+         <value type="int" value="1"/>
+         <value type="int" value="2"/>
+         <value type="int" value="3"/>
+-        <value type="int" value="4"/>
+         <value type="int" value="5"/>
+         <value type="int" value="6"/>
+         <value type="int" value="7"/>
+@@ -40,6 +39,7 @@
+         <value type="int" value="16"/>
+         <value type="int" value="17"/>
+         <value type="int" value="18"/>
++        <value type="int" value="19"/>
+       </property>
+     </property>
+   </property>
+@@ -52,7 +52,6 @@
+       <property name="expand" type="bool" value="true"/>
+       <property name="style" type="uint" value="0"/>
+     </property>
+-    <property name="plugin-4" type="string" value="pager"/>
+     <property name="plugin-5" type="string" value="separator">
+         <property name="style" type="uint" value="0"/>
+     </property>
+@@ -91,5 +90,10 @@
+     </property>
+     <property name="plugin-17" type="string" value="separator"/>
+     <property name="plugin-18" type="string" value="directorymenu"/>
++    <property name="plugin-19" type="string" value="launcher">
++      <property name="items" type="array">
++        <value type="string" value="/usr/share/applications/ArduinoAppLab.desktop"/>
++      </property>
++    </property>
+   </property>
+ </channel>

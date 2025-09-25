@@ -1,0 +1,11 @@
+--- /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml	2025-02-15 10:36:40.000000000 +0000
++++ /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml.new	2025-08-01 17:21:17.450347855 +0000
+@@ -6,7 +6,7 @@
+ 
+ <channel name="xsettings" version="1.0">
+   <property name="Net" type="empty">
+-    <property name="ThemeName" type="string" value="Xfce"/>
++    <property name="ThemeName" type="string" value="Adwaita-dark"/>
+     <property name="IconThemeName" type="string" value="Tango"/>
+     <property name="DoubleClickTime" type="int" value="400"/>
+     <property name="DoubleClickDistance" type="int" value="5"/>
