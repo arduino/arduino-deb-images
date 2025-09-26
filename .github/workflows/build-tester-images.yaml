@@ -1,0 +1,325 @@
+name: Debian image tester builds
+
+env:
+  # See: https://github.com/actions/setup-go/tree/main#supported-version-syntax
+  GO_VERSION: "1.24"
+  GITHUB_TOKEN: ${{ secrets.ARDUINOBOT_TOKEN }}
+  GITHUB_USERNAME: ArduinoBot
+  GIT_REPO_KERNEL: https://github.com/bcmi-labs/linux
+  GIT_BRANCH_KERNEL: qcom-v6.16.7-unoq
+  GIT_REPO_UBOOT: https://github.com/bcmi-labs/u-boot
+  DEVICE_TREE_UBOOT: qcom/qrb2210-arduino-unoq
+  OVERLAYS: arduino-unoq-releases
+  RELEASE_DIR: debian-im
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Make a release
+        type: boolean
+        default: false
+      docker-images:
+        description: Include arduino-app-cli docker images
+        type: boolean
+        default: false
+  repository_dispatch:
+  workflow_call:
+    inputs:
+      compile_kernel:
+        description: Compile kernel and u-boot or reuse binaries from source repo
+        type: boolean
+        default: false
+
+# implicitely set all other permissions to none
+permissions:
+  contents: write # to push the tag and make the release
+  id-token: write
+
+# cancel in progress builds for this workflow triggered by the same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-push-debian-image:
+    runs-on: debian-linux-images--linux-arm64-8core-32gb
+    environment: staging
+    container:
+      image: debian:trixie
+      options: --privileged  # Required for chroot creation
+    env:
+      TARGET: ${{ github.run_number }}
+    outputs:
+      tag: ${{ steps.buildtag.outputs.BUILD_ID }}
+    steps:
+      - name: Update OS packages
+        run: |
+          set -ux
+          apt update
+          apt -y upgrade
+          apt -y full-upgrade
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install debos and dependencies of the recipes
+        run: |
+          apt install -y debos mtools
+          # TEMPORARY: get a recent debos version until the next release
+          apt install -y git golang libglib2.0-dev libostree-dev libostree-1-1
+          git clone -b action-standalone-partitions https://github.com/facchinm/debos.git
+          cd debos && go build ./cmd/debos
+          mv debos /usr/local/bin/debos
+
+      - name: Configure Git for private repo cloning
+        run: |
+          git config --global url."https://${{ env.GITHUB_USERNAME }}:${{ env.GITHUB_TOKEN }}@github.com".insteadOf "https://github.com"
+
+      - name: Compile kernel and uboot
+        id: compile
+        run: |
+            set -ux
+            if [ "${{ inputs.compile_kernel }}" = true ]; then
+                # download arm64 package lists to install cross build-dependencies
+                if [ "$(dpkg --print-architecture)" != arm64 ]; then
+                    dpkg --add-architecture arm64
+                    apt update
+                fi
+                # install build-dependencies; TODO: --no-install-recommends
+                apt -y install git crossbuild-essential-arm64 make flex bison bc \
+                    libdw-dev libelf-dev libssl-dev libssl-dev:arm64 dpkg-dev \
+                    debhelper-compat kmod python3 rsync coreutils mkbootimg fwupd
+                GIT_REPO_KERNEL=${{ env.GIT_REPO_KERNEL }} GIT_BRANCH_KERNEL=${{ env.GIT_BRANCH_KERNEL }} \
+                  scripts/build-linux-deb.sh \
+                  kernel-configs/qcom-imsdk.config \
+                  kernel-configs/systemd-boot.config \
+                  kernel-configs/arduino.config
+              GIT_REPO_UBOOT=${{ env.GIT_REPO_UBOOT }} DEVICE_TREE_UBOOT=${{ env.DEVICE_TREE_UBOOT }} \
+                scripts/build-u-boot-rb1.sh
+              cp u-boot/rb1-boot.img .
+              rm linux-image-*dbg*.deb
+            else
+                echo "No kernel or u-boot build requested"
+                cp precompiled/rb1-boot.img .
+                cp precompiled/linux-image-*.deb .
+            fi
+            echo "KERNELPACKAGE=`dpkg-deb -f linux-image-*.deb Package | cut -f2`" >> $GITHUB_OUTPUT
+
+      - name: Setup local APT repo
+        run: |
+          set -ux -o pipefail
+
+          # needed for apt-ftparchive
+          apt -y install --no-install-recommends apt-utils
+          mkdir -v local-apt-repo
+
+          # if compiled, copy kernel debs
+          if [ -f linux-image* ]; then
+              mkdir -v local-apt-repo/linux-deb-latest
+              # get mainline kernel from the fileserver space for downloads
+              cp -av linux*.deb \
+                  local-apt-repo/linux-deb-latest
+          fi
+
+          (
+              cd local-apt-repo
+              apt-ftparchive packages . >Packages
+              apt-ftparchive release . >Release
+          )
+
+      - name: Set build tag
+        id: buildtag
+        run: |
+          BUILD_ID="$(date +'%Y%m%d')-${{ env.TARGET }}"
+          echo "BUILD_ID=${BUILD_ID}" >> $GITHUB_OUTPUT
+
+      - name: Build rootfs with debos
+        env:
+          INCLUDE_IMAGE: ${{ github.event.inputs.release || github.event.inputs.docker-images }} 
+        run: |
+          set -ux
+          debos \
+              -t overlays:${{ env.OVERLAYS }} \
+              -t xfcedesktop:true \
+              -t aptlocalrepo:${PWD}/local-apt-repo \
+              -t kernelpackage:'${{ steps.compile.outputs.KERNELPACKAGE }}' \
+              -t "buildid:${{ steps.buildtag.outputs.BUILD_ID }}" \
+              -t includecontainers:${{ env.INCLUDE_IMAGE }} \
+              --print-recipe \
+              debos-recipes/qualcomm-linux-debian-rootfs.yaml
+
+      - name: Apply arduino specific overlays
+        id: rootfs
+        run: |
+          set -ux
+          debos -t imagetype:sdcard \
+              -t aptlocalrepo:${PWD}/local-apt-repo \
+              -t includecontainers:true \
+              --print-recipe \
+              debos-recipes/qualcomm-linux-debian-rootfs-arduino-extra.yaml
+
+      - name: Build UFS and SD card images with debos
+        run: |
+          set -ux
+          debos -t imagetype:sdcard \
+              --print-recipe \
+              -t rootsize:${{ steps.rootfs.outputs.ROOT_SIZE }} \
+              -t homesize:${{ steps.rootfs.outputs.HOME_SIZE }} \
+              debos-recipes/qualcomm-linux-debian-image-arduino.yaml
+
+      - name: Install packaging dependencies
+        run: apt -y install zstd awscli unzip jq
+
+      - name: Prepare release tarball
+        env:
+          BUILD_ID: ${{ steps.buildtag.outputs.BUILD_ID }}
+        run: |
+          set -ux
+          mkdir arduino-unoq-debian-image-${{ env.BUILD_ID }}
+          mv disk-* arduino-unoq-debian-image-${{ env.BUILD_ID }}/
+          cp -r precompiled/flash \
+              arduino-unoq-debian-image-${{ env.BUILD_ID }}/
+          tar -cvf arduino-unoq-debian-image-${{ env.BUILD_ID }}.tar.zst \
+              --use-compress-program="zstd" \
+              arduino-unoq-debian-image-${{ env.BUILD_ID }}/
+
+      - name: Authenticate AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: 'us-east-1'
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE }}
+          role-session-name: GHA_DebianImages_via_FederatedOIDC
+          mask-aws-account-id: true
+
+      - id: calculate-checksum
+        run: |
+          CHECKSUM=`sha256sum arduino-unoq-debian-image-${{ steps.buildtag.outputs.BUILD_ID }}.tar.zst | awk '{print $1}'`
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+      
+      - name: Set S3 target
+        run: |
+          S3_TARGET=${{ env.RELEASE_DIR }}/Unstable
+          echo "RELEASE_DIR=${S3_TARGET}" >> $GITHUB_ENV
+        if: ${{ github.event.inputs.release == 'true' }}
+
+      - name: Get info.json
+        run: |
+          aws s3 cp s3://${{ secrets.S3_BUCKET }}/${{ env.RELEASE_DIR }}/info.json .
+
+      - name: Update info.json
+        run: |
+          jq --arg target "$BUILD_ID" '.latest.version |= $target' info.json > info.json.tmp && mv info.json.tmp info.json
+          jq --arg url "$URL" '.latest.url |= $url' info.json > info.json.tmp && mv info.json.tmp info.json
+          jq --arg sha256 "$CHECKSUM" '.latest.sha256 |= $sha256' info.json > info.json.tmp && mv info.json.tmp info.json
+        env:
+          BUILD_ID: ${{ steps.buildtag.outputs.BUILD_ID }}
+          URL: https://downloads.oniudra.cc/${{ env.RELEASE_DIR }}/${{ steps.buildtag.outputs.BUILD_ID }}/arduino-unoq-debian-image-${{ steps.buildtag.outputs.BUILD_ID }}.tar.zst
+          CHECKSUM: ${{ steps.calculate-checksum.outputs.checksum }}
+      
+      - name: Unpack rootfs to generate SBOM
+        run: mkdir -v rootfs && tar -C rootfs -xf rootfs.tar.gz
+        if: ${{ github.event.inputs.release == 'true' }}
+            
+      - name: Install Syft
+        run: |
+          set -ux
+          apt -y install curl
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh
+        if: ${{ github.event.inputs.release == 'true' }}
+        
+      - name: Generate SBOMs with Syft
+        run: |
+          set -ux
+          bin/syft --version
+          SYFT_FORMAT_PRETTY=true bin/syft \
+              -o cyclonedx-json=rootfs-sbom.cyclonedx.json \
+              -o spdx-json=rootfs-sbom.spdx.json \
+              -o syft-json=rootfs-sbom.syft.json \
+              -o syft-text=rootfs-sbom.syft.txt \
+              -o syft-table \
+              --parallelism $(nproc) \
+              --select-catalogers debian \
+              --source-name arduino-linux-debian-rootfs \
+              --source-version "${{ steps.buildtag.outputs.BUILD_ID }}" \
+              -v \
+              scan rootfs
+        if: ${{ github.event.inputs.release == 'true' }}
+                  
+      - name: Generate license summary from Syft report
+        run: |
+          set -ux
+          scripts/syft-license-summary.py \
+              --rootfs rootfs rootfs-sbom.syft.json |
+                  tee rootfs-sbom.syft-license-summary.csv.txt
+        if: ${{ github.event.inputs.release == 'true' }}
+      
+      - name: Stage SBOMs for publishing
+        run: |
+          set -ux
+          gzip rootfs-sbom.*
+          dir="sboms"
+          mkdir -v sboms
+          cp -av rootfs-sbom.*.gz sboms
+        if: ${{ github.event.inputs.release == 'true' }}
+
+      - name: Upload release image
+        env:
+          BUILD_ID: ${{ steps.buildtag.outputs.BUILD_ID }}
+        run: |
+          aws s3 cp arduino-unoq-debian-image-${{ env.BUILD_ID }}.tar.zst s3://${{ secrets.S3_BUCKET }}/${{ env.RELEASE_DIR }}/${{ env.BUILD_ID }}/
+          aws s3 cp info.json s3://${{ secrets.S3_BUCKET }}/${{ env.RELEASE_DIR }}/info.json
+      
+      - name: Upload sboms
+        env:
+          BUILD_ID: ${{ steps.buildtag.outputs.BUILD_ID }}
+        run: |
+          aws s3 cp sboms s3://${{ secrets.S3_BUCKET }}/${{ env.RELEASE_DIR }}/${{ env.BUILD_ID }}/sboms/ --recursive
+        if: ${{ github.event.inputs.release == 'true' }}
+
+      - name: Upload sboms artifact to make a release
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: sboms
+          overwrite: true
+          path: sboms/*
+        if: ${{ github.event.inputs.release == 'true' }}
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build-and-push-debian-image
+    if: ${{ github.event.inputs.release == 'true' }}
+    env:
+      TAG: ${{ needs.build-and-push-debian-image.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # fetch all history for the create changelog step to work properly
+
+      - name: Download artifact
+        uses: actions/download-artifact@v5
+        with:
+          merge-multiple: true
+          path: sboms
+
+      - name: Tag release to bind tag and commit
+        run: |
+          git config --global user.email "arduinobot@arduino.cc"
+          git config --global user.name "${{ env.GITHUB_USERNAME }}"
+          git tag ${{ env.TAG }} -m "${{ env.TAG }}"
+          git push origin ${{ env.TAG }}
+
+      - name: Create Github Release and upload artifacts
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ env.GITHUB_TOKEN }}
+          draft: false
+          prerelease: true
+          # NOTE: "Artifact is a directory" warnings are expected and don't indicate a problem
+          # (all the files we need are in the DIST_DIR root)
+          artifacts: sboms/*
+          tag: ${{ env.TAG }}

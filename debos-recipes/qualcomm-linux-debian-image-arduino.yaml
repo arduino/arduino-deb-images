@@ -1,0 +1,139 @@
+{{- $dtb := or .dtb "firmware" }}
+{{- $rootsize := or .rootsize "4GiB" }}
+{{- $homesize := or .homesize "1GiB" }}
+{{- $imagetype := or .imagetype "ufs" }}
+{{- $image := printf "disk-%s.img" $imagetype }}
+{{- $includecontainers := or .includecontainers "false" }}
+
+architecture: arm64
+
+actions:
+  - action: unpack
+    description: Unpack root filesystem
+    compression: gz
+    file: rootfs.tar.gz
+
+{{- if ne $dtb "firmware" }}
+  - action: run
+    description: Use OS device tree override (board specific)
+    chroot: true
+    command: |
+      set -eux
+      mkdir -pv /etc/kernel
+      echo "{{ $dtb }}" >/etc/kernel/devicetree
+{{- end }}
+
+  - action: image-standalone-partitions
+    description: Create standalone partitions and mount them
+    imagebasename: {{ $image }}
+    partitions:
+      - name: esp
+        partlabel: ESP
+        flags: [ boot, esp ]
+        # EFI System Partition
+        parttype: c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+        fs: vfat
+        size: 512MB
+        fsck: true
+      - name: root
+        # Root Partition (64-bit ARM/AArch64)
+        parttype: b921b045-1df0-41c3-af44-4c6f280d3fae
+        fs: ext4
+        size: {{ $rootsize }}
+        fsck: true
+      - name: home
+        # Linux home partition
+        parttype: 933ac7e1-2eb4-4f13-bf2c-170d0f8b3d7e
+        fs: ext4
+        size: {{ $homesize }}
+        fsck: true
+    mountpoints:
+      - mountpoint: /boot/efi/
+        partition: esp
+      - mountpoint: /home/arduino/
+        partition: home
+      - mountpoint: /
+        partition: root
+
+  # XXX these kernel options might be specific to a kernel version or board
+  - action: filesystem-deploy
+    description: Deploy root filesystem to mounted image
+    setup-fstab: true
+    append-kernel-cmdline: clk_ignore_unused pd_ignore_unused audit=0 deferred_probe_timeout=30
+
+  - action: apt
+    description: Make system bootable with systemd-boot
+    recommends: true
+    packages:
+      - systemd-boot
+      # TODO investigate why systemd-boot Recommends: shim-signed which
+      # Depends on grub packages
+      - shim-signed-
+
+  # this is to provide an updated copy of DTBs from the OS to U-Boot, notably
+  # on RB1
+  - action: run
+    description: Setup copying of DTBs to ESP partition
+    chroot: true
+    command: |
+      set -eux
+      # Fixes error when running outside qemu
+      dpkg-divert --local --rename --add /etc/kernel/postinst.d/u-boot-efi-dtb
+      ln -s /bin/true /etc/kernel/postinst.d/u-boot-efi-dtb
+      # u-boot-efi-dtb installs a kernel hook that will trigger on kernel
+      # installation/upgrade, but also calls it explicitely in its postinst in
+      # case it was installed after the kernel; it requires an ESP partition to
+      # copy the DTBs though, so install it after the ESP partition is
+      # available
+      apt -y install u-boot-efi-dtb
+      # Removing previous diversion and symlink
+      rm /etc/kernel/postinst.d/u-boot-efi-dtb
+      dpkg-divert --rename --remove /etc/kernel/postinst.d/u-boot-efi-dtb
+      # when building under debos, /sys/firmware/efi is not always present, so
+      # the u-boot-efi-dtb postinst doesn't install an initial copy of the
+      # DTBs; do this once here
+      latest_kernel="$(
+          linux-version list | linux-version sort --reverse | head -1)"
+      dtb_path="/usr/lib/linux-image-${latest_kernel}"
+      cp -RT "$dtb_path" "/boot/efi/dtb"
+
+  - action: run
+    description: Create task to grow root filesystem on first boot
+    chroot: true
+    command: |
+      set -eux
+      # for growpart
+      apt -y install cloud-guest-utils
+      # extract the dev of the root filesystem from fstab; change UUID=id into
+      # /dev/disk/by-uuid/id
+      ROOTFS_DEV=$(
+          awk '$2 == "/" {gsub("UUID=", "/dev/disk/by-uuid/"); print $1}' \
+              /etc/fstab
+          )
+      USERDATA_DEV=$(
+          awk '$2 == "/home/arduino/" {gsub("UUID=", "/dev/disk/by-uuid/"); print $1}' \
+              /etc/fstab
+          )
+      # generate systemd unit to grow the second partition with above UUID
+      cat >/etc/systemd/system/debos-grow-rootfs.service <<EOF
+      [Unit]
+      Description=Grow root partition and filesystem (debos)
+      [Service]
+      Type=oneshot
+      ExecStartPre=-sh -c 'growpart /dev/\`lsblk -n -o pkname $ROOTFS_DEV\` 2'
+      ExecStart=-sh -c 'resize2fs $ROOTFS_DEV && resize2fs $USERDATA_DEV'
+      [Install]
+      WantedBy=default.target
+      EOF
+      # enable unit
+      systemctl enable debos-grow-rootfs
+
+  - action: run
+    description: Clean apt cache
+    chroot: true
+    command: |
+      set -eux
+      apt clean
+
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause

@@ -1,0 +1,300 @@
+{{- $dtb := or .dtb "firmware" }}
+{{- $imagesize := or .imagesize "4GiB" }}
+{{- $imagetype := or .imagetype "ufs" }}
+{{- $image := printf "disk-%s.img" $imagetype }}
+{{- $includecontainers := or .includecontainers "false" }}
+{{- $aptlocalrepo := or .aptlocalrepo "none" }}
+
+architecture: arm64
+
+actions:
+  - action: unpack
+    description: Unpack root filesystem
+    compression: gz
+    file: rootfs.tar.gz
+
+{{- if ne $aptlocalrepo "none" }}
+  - action: run
+    description: Setup bind mount of local APT repository
+    chroot: false
+    command: |
+      set -eux
+      mkdir -v "${ROOTDIR}/media/apt-local-repo"
+      mount --bind {{$aptlocalrepo}} "${ROOTDIR}/media/apt-local-repo"
+
+  - action: run
+    description: APT update and upgrade with local APT repository
+    chroot: true
+    command: |
+      set -eux
+      cat >/etc/apt/sources.list.d/apt-local-repo.sources <<EOF
+      Types: deb
+      URIs: file:///media/apt-local-repo
+      Suites: /
+      Trusted: true
+      EOF
+
+      apt update
+      apt -y upgrade
+{{- end }}
+
+  - action: run
+    description: Set hostname to "uno-q"
+    chroot: true
+    command: |
+      set -eux
+      echo uno-q >/etc/hostname
+      # /etc/hosts is created by netbase
+      sed -i "1s/^/127.0.1.1	uno-q\n/" /etc/hosts
+
+  - action: apt
+    description: Install Arduino specific packages
+    recommends: true
+    packages:
+      # allow hostname resolution without relying on /etc/hosts file.
+      - libnss-myhostname
+      - zram-tools
+      - docker.io
+      - docker-compose
+      - docker-cli
+      - docker-buildx
+      - gpiod
+      - avahi-daemon
+      - unzip
+      - minicom
+      - evtest
+      - tree
+      - curl
+      - htop
+      - zip
+      - patch
+      - file
+      - git
+      - ssh
+      # gui packages
+      - numix-gtk-theme
+      - gvfs
+      - thunar-volman
+      - thunar-archive-plugin
+      - ristretto
+
+  - action: run
+    description: Remove ssh keys
+    chroot: true
+    command: |
+      rm -f /etc/ssh/ssh_host_*
+
+  - action: run
+    description: Use nftables instead iptables
+    chroot: true
+    command: |
+      update-alternatives --set iptables /usr/sbin/iptables-legacy
+      update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+
+  - action: run
+    description: Add a "arduino" user, add it to sudoers and various groups, also setting the TMPDIR variable for everyone
+    chroot: true
+    command: |
+      set -eux
+      # pre-emptively create a sudo group if sudo isn't installed
+      getent group sudo >/dev/null 2>&1 || groupadd --system sudo
+      # some of these groups are only needed for desktop scenarios
+      useradd --create-home --shell /bin/bash --user-group \
+          --groups adm,video,users,sudo,docker,netdev,dialout,audio,render,bluetooth,input arduino
+
+      # create gpiod group
+      groupadd -f gpiod
+      usermod -a -G gpiod arduino
+
+      # make arduino with no password and force password change.
+      echo arduino:arduino | chpasswd
+      passwd -d arduino
+      chage -d 0 arduino
+
+      # change user icon
+      mv /opt/Logo.png /home/arduino/.face
+      # set image property to the arduino user
+      # Copy default .bashrc config
+      install -o arduino -g arduino -m 644 /etc/skel/.bashrc /home/arduino
+      # This is needed to automatically source the .bashrc
+      cat > /home/arduino/.profile <<EOF
+      if [ -f ~/.bashrc ]; then
+        . ~/.bashrc
+      fi
+      EOF
+
+  - action: run
+    description: Customize xfce4 desktop
+    chroot: true
+    command: |
+      set -eux
+      # prevent a xfcedesktop update from overwriting these changes
+      dpkg-divert --local --rename --add /usr/share/backgrounds/xfce/xfce-x.svg
+      # we didn't find a better way then rename our wallpaper with the default xfce one.
+      mv /opt/BackgroundNeutral.jpg /usr/share/backgrounds/xfce/xfce-x.svg
+
+  - action: run
+    description: Patch lightdm to have a custom login screen
+    chroot: true
+    command: |
+      set -eux
+      mv /opt/NoLogo-BackgroundNeutral.jpg /usr/share/backgrounds/
+      patch /etc/lightdm/lightdm-gtk-greeter.conf \
+            /etc/lightdm/lightdm-greeter.patch \
+      && rm /etc/lightdm/lightdm-greeter.patch
+      mv /etc/lightdm/lightdm.conf.new /etc/lightdm/lightdm.conf
+
+  - action: run
+    description: Remove workspaces widget and add App Lab to the dock
+    chroot: true
+    command: |
+      set -eux
+      patch /etc/xdg/xfce4/panel/default.xml \
+            /etc/xdg/xfce4/panel/desktop.patch \
+      && rm /etc/xdg/xfce4/panel/desktop.patch
+
+  - action: run
+    description: Configure default xfce4 darktheme
+    chroot: true
+    command: |
+       patch /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml \
+             /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml.patch \
+        && rm /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml.patch
+
+  - action: apt
+    description: Install arduino userspace packages
+    recommends: false
+    update: true
+    packages:
+      - arduino-app-cli
+      - arduino-router
+      - arduino-app-lab
+      - arduino-cli
+
+  - action: run
+    description: Pre-install the core for the micro
+    chroot: true
+    command: |
+      export ARDUINO_DIRECTORIES_DATA=/home/arduino/.arduino15 \
+      && arduino-cli core install arduino:zephyr --additional-urls=https://arduino:aptexperiment@apt-repo.oniudra.cc/zephyr-core-imola.json \
+      && arduino-cli cache clean \
+      && arduino-cli lib download MsgPack \
+      && arduino-cli lib download DebugLog \
+      && arduino-cli lib download ArxContainer \
+      && arduino-cli lib download ArxTypeTraits
+
+  - action: run
+    description: Add bash completions
+    chroot: true
+    command: |
+      arduino-cli completion bash > /etc/bash_completion.d/arduino-cli.bash
+      export ARDUINO_APP_CLI__ALLOW_ROOT=true && \
+        arduino-app-cli completion bash > /etc/bash_completion.d/arduino-app-cli.bash
+
+  - action: run
+    description: Make openocd and stm32flash executable
+    chroot: true
+    command: |
+      set -eux
+      ln -s /opt/openocd/bin/arduino-debug.sh /usr/local/bin/arduino-debug
+      ln -s /opt/openocd/bin/arduino-flash.sh /usr/local/bin/arduino-flash
+      ln -s /opt/openocd/bin/arduino-reset.sh /usr/local/bin/arduino-reset
+
+  - action: run
+    description: Changes button handling
+    chroot: true
+    command: |
+      set -eux
+      echo "HandlePowerKey=ignore" >> /etc/systemd/logind.conf
+      echo "HandlePowerKeyLongPress=reboot" >> /etc/systemd/logind.conf
+
+  - action: run
+    description: Removes older kernels and purge locales
+    chroot: true
+    command: |
+      set -eux
+      locale-gen --purge en_US.UTF-8
+
+  - action: run
+    description: Configure journald
+    chroot: true
+    command: |
+      set -eux
+      # set journald to use 50MB of storage
+      sed -i 's/#SystemMaxUse=/SystemMaxUse=50M/' /etc/systemd/journald.conf
+      sed -i 's/#RuntimeMaxUse=/RuntimeMaxUse=50M/' /etc/systemd/journald.conf
+
+{{- if eq $includecontainers "true" }}
+  - action: run
+    description: Preload docker images
+    chroot: true
+    command: |
+      set -eux
+      /usr/bin/containerd &
+      sleep 10
+      /usr/sbin/dockerd --containerd=/run/containerd/containerd.sock --iptables=false --bridge=none &
+      sleep 20
+      export ARDUINO_APP_CLI__DATA_DIR=/home/arduino/.local/share/arduino-app-cli/ && \
+        export ARDUINO_APP_CLI__ALLOW_ROOT=true && \
+        /usr/bin/arduino-app-cli system init
+      rm -rf /home/arduino/.docker
+{{- end }}
+
+  - action: run
+    description: Chown home directory
+    chroot: true
+    command: |
+      set -eux
+      chown -R arduino:arduino /home/arduino/
+
+{{- if ne $aptlocalrepo "none" }}
+  - action: run
+    description: Remove bind mount of local APT repository
+    chroot: false
+    command: |
+      set -eux
+      umount "${ROOTDIR}/media/apt-local-repo"
+      rmdir -v "${ROOTDIR}/media/apt-local-repo"
+
+  - action: run
+    description: APT update without local APT repository
+    chroot: true
+    command: |
+      set -eux
+      rm -v /etc/apt/sources.list.d/apt-local-repo.sources
+      apt update
+{{- end }}
+
+  - action: run
+    description: Find partitions minimal sizes
+    command: |
+      set -eux
+      HOME_SIZE=`du -s $ROOTDIR/home/ | cut -f1`
+      BOOT_SIZE=`du -s $ROOTDIR/boot/ | cut -f1`
+      ROOT_SIZE=`du -s $ROOTDIR/ | cut -f1`
+      ROOT_SIZE=$((ROOT_SIZE - BOOT_SIZE - HOME_SIZE))
+      # Increase all sizes by 20% to leave some free space for journal
+      export HOME_SIZE=$((HOME_SIZE + HOME_SIZE / 5))KB
+      export ROOT_SIZE=$((ROOT_SIZE + ROOT_SIZE / 5))KB
+      export BOOT_SIZE=${BOOT_SIZE}KB
+      echo "ROOT_SIZE=${ROOT_SIZE}" >> $GITHUB_OUTPUT
+      echo "BOOT_SIZE=${BOOT_SIZE}" >> $GITHUB_OUTPUT
+      echo "HOME_SIZE=${HOME_SIZE}" >> $GITHUB_OUTPUT
+      echo "Home size (KiB): $HOME_SIZE"
+      echo "Boot size (KiB): $BOOT_SIZE"
+      echo "Root size (KiB): $ROOT_SIZE"
+
+  - action: run
+    description: Remove old rootfs
+    chroot: false
+    command: |
+      set -eux
+      rm -f ${ARTIFACTDIR}/rootfs.tar.gz
+
+  - action: pack
+    description: Create root filesystem tarball
+    file: rootfs.tar.gz
+    compression: gz
+
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause
