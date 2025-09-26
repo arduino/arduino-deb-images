@@ -5,8 +5,8 @@
 set -eu
 
 # git repo/branch to use
-GIT_REPO="https://github.com/torvalds/linux"
-GIT_BRANCH="master"
+GIT_REPO=${GIT_REPO_KERNEL:-"https://github.com/torvalds/linux"}
+GIT_BRANCH=${GIT_BRANCH_KERNEL:-"master"}
 # base config to use
 CONFIG="defconfig"
 
