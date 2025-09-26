@@ -114,7 +114,7 @@ jobs:
 
           # needed for apt-ftparchive
           apt -y install --no-install-recommends apt-utils
-          mkdir -v local-apt-repo
+          mkdir -p local-apt-repo
 
           # if compiled, copy kernel debs
           if [ -f linux-image* ]; then
