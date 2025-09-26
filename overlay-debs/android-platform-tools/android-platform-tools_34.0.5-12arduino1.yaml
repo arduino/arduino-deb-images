@@ -1,0 +1,4 @@
+dsc_url: "https://snapshot.debian.org/archive/debian/20250801T022237Z/pool/main/a/android-platform-tools/android-platform-tools_34.0.5-12.dsc"
+dsc_sha256sum: "4eb852fd4d7499bc3e0c0d23686d423796f71f0df302f3606860fc66d52d70b0"
+debdiff_file: "android-platform-tools_34.0.5-12arduino1.debdiff"
+suite: "trixie"

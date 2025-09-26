@@ -1,0 +1,149 @@
+diff -Nru android-platform-tools-34.0.5/debian/bin/adbd-usb-gadget android-platform-tools-34.0.5/debian/bin/adbd-usb-gadget
+--- android-platform-tools-34.0.5/debian/bin/adbd-usb-gadget	2025-04-04 06:03:19.000000000 +0000
++++ android-platform-tools-34.0.5/debian/bin/adbd-usb-gadget	2025-08-25 09:06:00.000000000 +0000
+@@ -31,13 +31,13 @@
+     mkdir -p strings/0x409
+     mkdir -p configs/c.1/strings/0x409
+ 
+-    echo 0x0100 > idProduct
+-    echo 0x18D1 > idVendor
++    echo 0x0078 > idProduct
++    echo 0x2341 > idVendor
+ 
+-    echo "Debian" > strings/0x409/manufacturer
+-    echo "ADB device" > strings/0x409/product
++    echo "Arduino" > strings/0x409/manufacturer
++    echo "Uno Q - $(cat /etc/hostname)" > strings/0x409/product
+     # Derive the serial number from the machine-id so it's unique
+-    echo "$(sha256sum < /etc/machine-id | cut -d' ' -f1)" > strings/0x409/serialnumber
++    echo "$(cat /sys/devices/soc0/serial_number)" > strings/0x409/serialnumber
+ 
+     echo "ADB Configuration" > configs/c.1/strings/0x409/configuration
+     echo 120 > configs/c.1/MaxPower
+@@ -48,11 +48,17 @@
+ 
+     # Mount FunctionFS where adbd expects it
+     mkdir -p /dev/usb-ffs/adb
+-    mount -t functionfs adb /dev/usb-ffs/adb
++    mount -t functionfs adb /dev/usb-ffs/adb -o uid=1000,gid=1000 
++ 
++    # create the acm (serial) function with unique name
++    mkdir -p functions/acm.GS0
++    # assign acm function to configuration
++    ln -s functions/acm.GS0 configs/c.1
+ }
+ 
+ activate()
+ {
++    echo ${UDC}
+     echo "${UDC}" > ${CONFIGFS_DIR}/UDC
+ }
+ 
+@@ -60,6 +66,7 @@
+     umount /dev/usb-ffs/adb
+     rmdir /dev/usb-ffs/adb
+     rm ${CONFIGFS_DIR}/configs/c.1/ffs.adb
++    rm ${CONFIGFS_DIR}/configs/c.1/acm.GS0
+     rmdir ${CONFIGFS_DIR}/configs/c.1/strings/0x409/
+     rmdir ${CONFIGFS_DIR}/configs/c.1/
+     rmdir ${CONFIGFS_DIR}/functions/ffs.adb
+diff -Nru android-platform-tools-34.0.5/debian/changelog android-platform-tools-34.0.5/debian/changelog
+--- android-platform-tools-34.0.5/debian/changelog	2025-04-04 06:03:19.000000000 +0000
++++ android-platform-tools-34.0.5/debian/changelog	2025-08-25 09:09:07.000000000 +0000
+@@ -1,3 +1,10 @@
++android-platform-tools (34.0.5-12arduino3) unstable; urgency=medium
++
++  * adbd:
++    - Remove root and switch to bash
++
++ -- Martino Facchin <m.facchin@arduino.cc>  Thu, 25 Aug 2025 11:08:19 +0100
++
+ android-platform-tools (34.0.5-12) unstable; urgency=medium
+ 
+   * debian/control:
+diff -Nru android-platform-tools-34.0.5/debian/patches/adbd/adbd-drop-root.patch android-platform-tools-34.0.5/debian/patches/adbd/adbd-drop-root.patch
+--- android-platform-tools-34.0.5/debian/patches/adbd/adbd-drop-root.patch	1970-01-01 00:00:00.000000000 +0000
++++ android-platform-tools-34.0.5/debian/patches/adbd/adbd-drop-root.patch	2025-08-25 09:05:46.000000000 +0000
+@@ -0,0 +1,32 @@
++## Description: add some description
++## Origin/Author: add some origin or author
++## Bug: bug URL
++Index: android-platform-tools-35.0.2/packages/modules/adb/daemon/main.cpp
++===================================================================
++--- android-platform-tools-35.0.2.orig/packages/modules/adb/daemon/main.cpp
+++++ android-platform-tools-35.0.2/packages/modules/adb/daemon/main.cpp
++@@ -51,6 +51,7 @@
++ 
++ #if defined(__linux__)
++ #include <systemd/sd-daemon.h>
+++#include <grp.h>
++ #endif
++ 
++ #include "adb.h"
++@@ -304,6 +304,16 @@ int adbd_main(int server_port) {
++ 
++     LOG(INFO) << "adbd started";
++ 
+++    gid_t supplementary_groups[] = {4,20,27,29,44,100,101,102,103,987,995,991,1001};
+++    setgroups(13, supplementary_groups);
+++
+++    if (setgid(1000) != 0) {
+++        exit(1);
+++    }
+++    if (setuid(1000) != 0) {
+++        exit(1);
+++    }
+++
++     D("adbd_main(): pre init_jdwp()");
++     init_jdwp();
++     D("adbd_main(): post init_jdwp()");
+diff -Nru android-platform-tools-34.0.5/debian/patches/adbd/adbd-use-bash.patch android-platform-tools-34.0.5/debian/patches/adbd/adbd-use-bash.patch
+--- android-platform-tools-34.0.5/debian/patches/adbd/adbd-use-bash.patch	1970-01-01 00:00:00.000000000 +0000
++++ android-platform-tools-34.0.5/debian/patches/adbd/adbd-use-bash.patch	2025-08-25 09:05:41.000000000 +0000
+@@ -0,0 +1,17 @@
++## Description: add some description
++## Origin/Author: add some origin or author
++## Bug: bug URL
++Index: android-platform-tools-35.0.2/packages/modules/adb/daemon/shell_service.cpp
++===================================================================
++--- android-platform-tools-35.0.2.orig/packages/modules/adb/daemon/shell_service.cpp
+++++ android-platform-tools-35.0.2/packages/modules/adb/daemon/shell_service.cpp
++@@ -111,6 +111,9 @@
++ #include "security_log_tags.h"
++ #include "shell_protocol.h"
++ 
+++#undef _PATH_BSHELL
+++#define _PATH_BSHELL "/bin/bash"
+++
++ namespace {
++ 
++ // Reads from |fd| until close or failure.
+diff -Nru android-platform-tools-34.0.5/debian/patches/adbd/adbd-disable-network-mode.patch android-platform-tools-34.0.5/debian/patches/adbd/adbd-disable-network-mode.patch
+--- android-platform-tools-34.0.5/debian/patches/adbd/adbd-disable-network-mode.patch	1970-01-01 00:00:00.000000000 +0000
++++ android-platform-tools-34.0.5/debian/patches/adbd/adbd-disable-network-mode.patch	2025-09-11 12:48:49.000000000 +0000
+@@ -0,0 +1,15 @@
++## Description: add some description
++## Origin/Author: add some origin or author
++## Bug: bug URL
++Index: android-platform-tools-35.0.2/packages/modules/adb/daemon/main.cpp
++===================================================================
++--- android-platform-tools-35.0.2.orig/packages/modules/adb/daemon/main.cpp
+++++ android-platform-tools-35.0.2/packages/modules/adb/daemon/main.cpp
++@@ -171,6 +171,7 @@
++ #endif
++
++ static void setup_adb(const std::vector<std::string>& addrs) {
+++    return;
++ #if defined(__ANDROID__)
++     // Get the first valid port from addrs and setup mDNS.
++     int port = -1;
+diff -Nru android-platform-tools-34.0.5/debian/patches/series android-platform-tools-34.0.5/debian/patches/series
+--- android-platform-tools-34.0.5/debian/patches/series	2025-04-04 06:03:19.000000000 +0000
++++ android-platform-tools-34.0.5/debian/patches/series	2025-08-25 09:07:06.000000000 +0000
+@@ -27,3 +27,6 @@
+ adbd/adbd-allow-notifying-systemd.patch
+ adbd/adbd-usb-drop-property-monitor.patch
+ adbd/adbd-don-t-require-authorization-on-Linux.patch
++adbd/adbd-drop-root.patch
++adbd/adbd-use-bash.patch
++adbd/adbd-disable-network-mode.patch
