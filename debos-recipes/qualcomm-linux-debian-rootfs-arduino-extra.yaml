@@ -190,6 +190,18 @@ actions:
       && arduino-cli lib download ArxTypeTraits
 
   - action: run
+    description: Optimize toolchain
+    chroot: true
+    command: |
+      set -eux
+      export TOOLCHAIN=/home/arduino/.arduino15/packages/zephyr/tools/arm-zephyr-eabi/0.16.8
+      find $TOOLCHAIN | grep "arm/v5" | xargs rm -rf
+      find $TOOLCHAIN | grep "thumb/v6" | xargs rm -rf
+      find $TOOLCHAIN | grep "thumb/v7" | xargs rm -rf
+      find $TOOLCHAIN | grep "thumb/nofp" | xargs rm -rf
+      find $TOOLCHAIN | grep "thumb/v8.1-m.main" | xargs rm -rf
+
+  - action: run
     description: Add bash completions
     chroot: true
     command: |
