@@ -1,0 +1,1 @@
+deb [signed-by=/etc/apt/keyrings/arduino.asc] https://apt-repo.arduino.cc stable main
