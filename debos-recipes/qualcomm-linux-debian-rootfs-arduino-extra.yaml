@@ -47,6 +47,12 @@ actions:
       # /etc/hosts is created by netbase
       sed -i "1s/^/127.0.1.1	uno-q\n/" /etc/hosts
 
+  - action: run
+    description: Remove debian user
+    chroot: true
+    command: |
+      userdel -r debian
+
   - action: apt
     description: Install Arduino specific packages
     recommends: true
