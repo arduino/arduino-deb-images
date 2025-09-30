@@ -53,6 +53,14 @@ actions:
     command: |
       userdel -r debian
 
+  - action: run
+    # the correct way to do things would be to modify adbd
+    description: Swap pipewire and docker group
+    chroot: true
+    command: |
+      groupmod -g  110 pipewire
+      groupmod -g  103 docker
+
   - action: apt
     description: Install Arduino specific packages
     recommends: true
