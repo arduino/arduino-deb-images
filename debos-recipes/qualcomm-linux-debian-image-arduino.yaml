@@ -44,6 +44,7 @@ actions:
       - name: home
         # Linux home partition
         parttype: 933ac7e1-2eb4-4f13-bf2c-170d0f8b3d7e
+        fsuuid: 66f6d9a8-6ce3-46f6-b679-a1a1d991ba19
         fs: ext4
         size: {{ $homesize }}
         fsck: true
