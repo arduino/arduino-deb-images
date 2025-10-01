@@ -180,6 +180,16 @@ actions:
     recommends: false
     update: true
     packages:
+      - gir1.2-javascriptcoregtk-4.1=2.48.3-1qcom1
+      - gir1.2-webkit2-4.1=2.48.3-1qcom1
+      - libjavascriptcoregtk-4.0-bin=2.48.3-1qcom1
+      - libjavascriptcoregtk-4.1-0=2.48.3-1qcom1
+      - libjavascriptcoregtk-bin=2.48.3-1qcom1
+      - libwebkit2gtk-4.0-doc=2.48.3-1qcom1
+      - libwebkit2gtk-4.1-0=2.48.3-1qcom1
+      - libwebkitgtk-doc=2.48.3-1qcom1
+      - webkit2gtk-driver=2.48.3-1qcom1
+      - webkitgtk-webdriver=2.48.3-1qcom1
       - arduino-app-cli
       - arduino-router
       - arduino-app-lab
