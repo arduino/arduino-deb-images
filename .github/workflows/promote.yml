@@ -1,0 +1,102 @@
+name: Promote a release to Stable
+
+env:
+  GITHUB_TOKEN: ${{ secrets.ARDUINOBOT_TOKEN }}
+  GITHUB_USERNAME: ArduinoBot
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        description: version of the image to promote
+        required: true
+
+# cancel in progress builds for this workflow
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  promote-release:
+    environment: staging
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for OIDC authentication
+      contents: write  # Required to tag the release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Authenticate AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: 'us-east-1'
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE }}
+          role-session-name: GHA_DebianImages_via_FederatedOIDC
+          mask-aws-account-id: true
+
+      - name: Get unstable and stable info.json
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          aws s3 cp s3://${{ secrets.S3_BUCKET }}/debian-im/Unstable/info.json staging.json
+          aws s3 cp s3://${{ secrets.S3_BUCKET }}/debian-im/Unstable/${{ env.VERSION }}/sboms/ sboms --recursive
+          aws s3 cp s3://${{ secrets.S3_BUCKET }}/debian-im/Stable/info.json prod.json
+
+      - name: Add release to stable/production json
+        run: |
+          RELEASE=$(jq --arg target_version "$VERSION" '(.releases[] | select(.version == $target_version))' staging.json)
+          RELEASE=$(jq --arg url "$URL" '.url |= $url' <<< $RELEASE)
+          jq --argjson release "$RELEASE" '.latest = $release | if .releases | any(.version == $release.version) then . else .releases += [$release] end' prod.json > prod.json.tmp \
+            && mv prod.json.tmp prod.json
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          URL: https://downloads.arduino.cc/debian-im/Stable/${{ github.event.inputs.version }}/arduino-unoq-debian-image-${{ github.event.inputs.version }}.tar.zst
+
+      - name: Tag release to bind tag and commit
+        env:
+          TAG: ${{ github.event.inputs.version }}
+        run: |
+          git config --global user.email "arduinobot@arduino.cc"
+          git config --global user.name "${{ env.GITHUB_USERNAME }}"
+          git tag ${{ env.TAG }} -m "${{ env.TAG }}"
+          git push origin ${{ env.TAG }}
+
+      - name: Create changelog
+        uses: arduino/create-changelog@v1
+        with:
+          tag-regex: '^[0-9]{8}-[0-9]+$'
+          changelog-file-path: "./CHANGELOG.md"
+      
+      - name: Add download link to the changelog
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          echo >> "CHANGELOG.md"
+          echo "## Download Release" >> "CHANGELOG.md"
+          echo "Release available here: https://downloads.arduino.cc/debian-im/Stable/${{ env.VERSION }}/arduino-unoq-debian-image-${{ env.VERSION }}.tar.zst" >> "CHANGELOG.md"
+
+      - name: Create Github Release and upload artifacts
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ env.GITHUB_TOKEN }}
+          bodyFile: CHANGELOG.md
+          draft: false
+          prerelease: true
+          # NOTE: "Artifact is a directory" warnings are expected and don't indicate a problem
+          # (all the files we need are in the DIST_DIR root)
+          artifacts: sboms/*
+          tag: ${{ github.event.inputs.version }}
+
+      - name: Promote release
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          aws s3 cp s3://${{ secrets.S3_BUCKET }}/debian-im/Unstable/${{ env.VERSION }}/ \
+            s3://${{ secrets.S3_BUCKET }}/debian-im/Stable/${{ env.VERSION }}/ \
+            --recursive
+          aws s3 cp prod.json s3://${{ secrets.S3_BUCKET }}/debian-im/Stable/info.json

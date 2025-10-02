@@ -33,7 +33,7 @@ on:
 
 # implicitely set all other permissions to none
 permissions:
-  contents: write # to push the tag and make the release
+  contents: read
   id-token: write
 
 # cancel in progress builds for this workflow triggered by the same ref
@@ -50,8 +50,6 @@ jobs:
       options: --privileged  # Required for chroot creation
     env:
       TARGET: ${{ github.run_number }}
-    outputs:
-      tag: ${{ steps.buildtag.outputs.BUILD_ID }}
     steps:
       - name: Update OS packages
         run: |
@@ -214,6 +212,7 @@ jobs:
           jq --arg target "$BUILD_ID" '.latest.version |= $target' info.json > info.json.tmp && mv info.json.tmp info.json
           jq --arg url "$URL" '.latest.url |= $url' info.json > info.json.tmp && mv info.json.tmp info.json
           jq --arg sha256 "$CHECKSUM" '.latest.sha256 |= $sha256' info.json > info.json.tmp && mv info.json.tmp info.json
+          jq '.releases += [.latest]' info.json > info.json.tmp && mv info.json.tmp info.json
         env:
           BUILD_ID: ${{ steps.buildtag.outputs.BUILD_ID }}
           URL: https://downloads.oniudra.cc/${{ env.RELEASE_DIR }}/${{ steps.buildtag.outputs.BUILD_ID }}/arduino-unoq-debian-image-${{ steps.buildtag.outputs.BUILD_ID }}.tar.zst
@@ -279,47 +278,6 @@ jobs:
           aws s3 cp sboms s3://${{ secrets.S3_BUCKET }}/${{ env.RELEASE_DIR }}/${{ env.BUILD_ID }}/sboms/ --recursive
         if: ${{ github.event.inputs.release == 'true' }}
 
-      - name: Upload sboms artifact to make a release
-        uses: actions/upload-artifact@v4
-        with:
-          if-no-files-found: error
-          name: sboms
-          overwrite: true
-          path: sboms/*
-        if: ${{ github.event.inputs.release == 'true' }}
-
-  release:
-    runs-on: ubuntu-latest
-    needs: build-and-push-debian-image
-    if: ${{ github.event.inputs.release == 'true' }}
-    env:
-      TAG: ${{ needs.build-and-push-debian-image.outputs.tag }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # fetch all history for the create changelog step to work properly
-
-      - name: Download artifact
-        uses: actions/download-artifact@v5
-        with:
-          merge-multiple: true
-          path: sboms
-
-      - name: Tag release to bind tag and commit
+      - name: Build summary
         run: |
-          git config --global user.email "arduinobot@arduino.cc"
-          git config --global user.name "${{ env.GITHUB_USERNAME }}"
-          git tag ${{ env.TAG }} -m "${{ env.TAG }}"
-          git push origin ${{ env.TAG }}
-
-      - name: Create Github Release and upload artifacts
-        uses: ncipollo/release-action@v1
-        with:
-          token: ${{ env.GITHUB_TOKEN }}
-          draft: false
-          prerelease: true
-          # NOTE: "Artifact is a directory" warnings are expected and don't indicate a problem
-          # (all the files we need are in the DIST_DIR root)
-          artifacts: sboms/*
-          tag: ${{ env.TAG }}
+          echo "Release available here: https://downloads.oniudra.cc/${{ env.RELEASE_DIR }}/${{ steps.buildtag.outputs.BUILD_ID }}/arduino-unoq-debian-image-${{ steps.buildtag.outputs.BUILD_ID }}.tar.zst" >> $GITHUB_STEP_SUMMARY
