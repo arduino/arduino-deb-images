@@ -1,6 +1,6 @@
 #!/bin/bash
 
-INSTALL_PATH=$(dirname $(readlink -f $0))/..
+INSTALL_PATH=$(dirname "$(readlink -f $0)")/..
 
 if [ $# -eq 2 ] ; then
 	ZEPHYR=$1
