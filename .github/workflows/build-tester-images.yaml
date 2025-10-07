@@ -5,9 +5,9 @@ env:
   GO_VERSION: "1.24"
   GITHUB_TOKEN: ${{ secrets.ARDUINOBOT_TOKEN }}
   GITHUB_USERNAME: ArduinoBot
-  GIT_REPO_KERNEL: https://github.com/bcmi-labs/linux
+  GIT_REPO_KERNEL: https://github.com/arduino/linux-qcom
   GIT_BRANCH_KERNEL: qcom-v6.16.7-unoq
-  GIT_REPO_UBOOT: https://github.com/bcmi-labs/u-boot
+  GIT_REPO_UBOOT: https://github.com/arduino/u-boot
   DEVICE_TREE_UBOOT: qcom/qrb2210-arduino-unoq
   OVERLAYS: arduino-unoq-releases
   RELEASE_DIR: debian-im
