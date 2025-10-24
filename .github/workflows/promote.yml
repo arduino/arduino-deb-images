@@ -71,12 +71,24 @@ jobs:
         with:
           tag-regex: '^[0-9]{8}-[0-9]+$'
           changelog-file-path: "./CHANGELOG.md"
-      
-      - name: Add download link to the changelog
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: scripts/arduino-packages-summary/go.mod
+
+      - name: Generate Arduino packages summary
+        working-directory: ./scripts/arduino-packages-summary
+        run: |
+          cp ../../sboms/rootfs-sbom.syft.json.gz . && gzip -d rootfs-sbom.syft.json.gz
+          go run .
+
+      - name: Add download link and packages summary to the changelog
         env:
           VERSION: ${{ github.event.inputs.version }}
         run: |
           echo >> "CHANGELOG.md"
+          cat ./scripts/arduino-packages-summary/arduino-summary.md >> "CHANGELOG.md"
           echo "## Download Release" >> "CHANGELOG.md"
           echo "Release available here: https://downloads.arduino.cc/debian-im/Stable/${{ env.VERSION }}/arduino-unoq-debian-image-${{ env.VERSION }}.tar.zst" >> "CHANGELOG.md"
 

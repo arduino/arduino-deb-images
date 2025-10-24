@@ -1,4 +1,4 @@
-name: Debian image tester builds
+name: Build Debian image
 
 env:
   # See: https://github.com/actions/setup-go/tree/main#supported-version-syntax
@@ -291,3 +291,4 @@ jobs:
       - name: Build summary
         run: |
           echo "Release available here: https://downloads.oniudra.cc/${{ env.RELEASE_DIR }}/${{ steps.buildtag.outputs.BUILD_ID }}/arduino-unoq-debian-image-${{ steps.buildtag.outputs.BUILD_ID }}.tar.zst" >> $GITHUB_STEP_SUMMARY
+          echo "Build ID: ${{ steps.buildtag.outputs.BUILD_ID }}" >> $GITHUB_STEP_SUMMARY
