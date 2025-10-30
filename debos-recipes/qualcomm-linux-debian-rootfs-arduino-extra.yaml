@@ -200,12 +200,14 @@ actions:
     chroot: true
     command: |
       export ARDUINO_DIRECTORIES_DATA=/home/arduino/.arduino15 \
-      && arduino-cli core install arduino:zephyr --additional-urls=https://arduino:aptexperiment@apt-repo.oniudra.cc/zephyr-core-imola.json \
+      && arduino-cli core install arduino:zephyr \
       && arduino-cli cache clean \
       && arduino-cli lib download MsgPack \
       && arduino-cli lib download DebugLog \
       && arduino-cli lib download ArxContainer \
-      && arduino-cli lib download ArxTypeTraits
+      && arduino-cli lib download ArxTypeTraits \
+      && arduino-cli lib download Arduino_RPClite \
+      && arduino-cli lib download Arduino_RouterBridge
 
   - action: run
     description: Optimize toolchain
