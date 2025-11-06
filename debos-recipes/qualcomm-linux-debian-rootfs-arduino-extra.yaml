@@ -302,6 +302,13 @@ actions:
 {{- end }}
 
   - action: run
+    description: Set regulatory database
+    chroot: true
+    command: |
+      set -eux
+      update-alternatives --set regulatory.db /lib/firmware/regulatory.db-upstream
+
+  - action: run
     description: Find partitions minimal sizes
     command: |
       set -eux
