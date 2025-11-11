@@ -202,10 +202,10 @@ actions:
       export ARDUINO_DIRECTORIES_DATA=/home/arduino/.arduino15 \
       && arduino-cli core install arduino:zephyr \
       && arduino-cli cache clean \
-      && arduino-cli lib download MsgPack \
-      && arduino-cli lib download DebugLog \
-      && arduino-cli lib download ArxContainer \
-      && arduino-cli lib download ArxTypeTraits \
+      && arduino-cli lib download MsgPack@0.4.2 \
+      && arduino-cli lib download DebugLog@0.8.4 \
+      && arduino-cli lib download ArxContainer@0.7.0 \
+      && arduino-cli lib download ArxTypeTraits@0.3.2 \
       && arduino-cli lib download Arduino_RPClite \
       && arduino-cli lib download Arduino_RouterBridge
 
