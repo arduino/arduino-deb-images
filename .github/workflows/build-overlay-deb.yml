@@ -4,21 +4,26 @@ on:
   workflow_dispatch:
     inputs:
       config:
-        description: 'Path to the YAML configuration file'
+        description: "Path to the YAML configuration file"
         required: true
         type: string
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   build:
     strategy:
       matrix:
-        arch: [amd64, arm64]
-    runs-on: [self-hosted, qcom-u2404, "${{ matrix.arch }}"]
+        arch: [arm64]
+    runs-on: debian-linux-images--linux-arm64-8core-32gb
     env:
       CONFIG: ${{ inputs.config }}
+    environment: staging
     container:
-      image: public.ecr.aws/debian/debian:trixie
-      options: --privileged  # Required for chroot creation
+      image: debian:trixie
+      options: --privileged # Required for chroot creation
     steps:
       - name: Update OS packages
         run: |
@@ -35,7 +40,7 @@ jobs:
           set -ux
           DEBIAN_FRONTEND=noninteractive \
               apt -y install --no-install-recommends \
-                  sudo sbuild gnupg debootstrap debian-archive-keyring schroot
+                  sudo sbuild gnupg debootstrap debian-archive-keyring schroot awscli
 
       - name: Set up sbuild user
         run: |
@@ -91,8 +96,16 @@ jobs:
           sudo -u builder python3 scripts/build-deb.py \
               --config "$CONFIG" --output-dir upload
 
-      - name: Upload as private artifacts
-        uses: qualcomm-linux/upload-private-artifact-action@v1
+      - name: Authenticate AWS
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          path: upload
+          aws-region: "us-east-1"
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE }}
+          role-session-name: GHA_DebianImages_via_FederatedOIDC
+          mask-aws-account-id: true
 
+      - name: upload to S3
+        run: |
+          for file in upload/*.deb; do
+            aws s3 cp "$file" "s3://${{ secrets.AWS_BUKET }}/build-deb/"
+          done
