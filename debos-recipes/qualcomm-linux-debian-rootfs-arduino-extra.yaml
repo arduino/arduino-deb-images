@@ -91,6 +91,7 @@ actions:
       - thunar-volman
       - thunar-archive-plugin
       - ristretto
+      - xfce4-screenshooter
 
   - action: run
     description: Remove ssh keys
