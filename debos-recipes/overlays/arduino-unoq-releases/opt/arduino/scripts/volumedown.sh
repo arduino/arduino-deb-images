@@ -9,9 +9,9 @@
 #
 #         MPU RESET   o  ■  GND
 #
-#                TX   o  o  VOLUME UP
+#                RX   o  o  VOLUME UP
 #
-#                RX   o  o  VOLUME DOWN
+#                TX   o  o  VOLUME DOWN
 #                        |
 #          USB BOOT   o  ■  GND
 
