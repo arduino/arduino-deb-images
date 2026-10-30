@@ -427,10 +427,10 @@ actions:
     "platform" "qrb2210-unoq/emmc"
     "boot_binaries_download" (dict
         "description" "Arduino UNO Q rescue image"
-        "url" "https://downloads.arduino.cc/debian-im/unoq-bootloader-emmc-linux-251020.zip"
+        "url" "https://downloads.arduino.cc/debian-im/unoq-bootloader-emmc-linux-261030.zip"
         "name" "qrb2210-unoq_rescue-image"
         "filename" "qrb2210-unoq_rescue-image.zip"
-        "sha256sum" "c606e95d0107f8c58d0dd9494e00624d1db7c4361cca20513bc78ef02ca28dd1"
+        "sha256sum" "6be6a2a44d4b77c425b13877b009ed5f84e712382ac16e3993da0119e329ea31"
     )
     "u_boot_file" .u_boot_rb1
 )}}
@@ -441,12 +441,13 @@ actions:
     "ptool_platforms" (list "qrb2210-unoq-abl/emmc-16GB-arduino")
     "boot_binaries_download" (dict
         "description" "UNO Q boot binaries"
-        "url" "https://downloads.arduino.cc/debian-im/unoq-bootloader-emmc-linux-251020.zip"
+        "url" "https://downloads.arduino.cc/debian-im/unoq-bootloader-emmc-linux-261030.zip"
         "name" "qrb2210-arduino-imola_boot-binaries"
         "filename" "qrb2210-arduino-imola_boot-binaries.zip"
-        "sha256sum" "c606e95d0107f8c58d0dd9494e00624d1db7c4361cca20513bc78ef02ca28dd1"
+        "sha256sum" "6be6a2a44d4b77c425b13877b009ed5f84e712382ac16e3993da0119e329ea31"
     )
     "dtb" "qcom/qrb2210-arduino-imola.dtb"
+    "u_boot_file" .u_boot_rb1
 )}}
 
 {{- range $board := $boards }}

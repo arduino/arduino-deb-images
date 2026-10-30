@@ -7,7 +7,7 @@ set -eu
 # patches in this repo/branch were submitted upstream here:
 # https://lore.kernel.org/u-boot/20250410080027.208674-1-sumit.garg@kernel.org/
 GIT_REPO=${GIT_REPO_UBOOT:-"https://github.com/b49020/u-boot"}
-GIT_BRANCH="qcom-mainline"
+GIT_BRANCH=${GIT_BRANCH_UBOOT:-"qcom-mainline"}
 CONFIG="qcom_defconfig"
 U_BOOT_DEVICE_TREE=${DEVICE_TREE_UBOOT:-"qcom/qrb2210-rb1"}
 ABOOT_BASE_ADDRESS="0x80000000"
@@ -71,6 +71,9 @@ log_i "Cloning U-Boot (${GIT_REPO}:${GIT_BRANCH})"
 git clone --depth=1 --branch "${GIT_BRANCH}" "${GIT_REPO}" u-boot
 
 cd u-boot
+
+log_i "Patching (${CONFIG}) for faster boot"
+sed -i 's/^CONFIG_BOOTDELAY=.*/CONFIG_BOOTDELAY=0/' "configs/${CONFIG}"
 
 log_i "Configuring U-Boot (${CONFIG})"
 make "${CONFIG}"
