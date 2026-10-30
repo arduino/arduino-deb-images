@@ -341,7 +341,8 @@ actions:
     chroot: true
     command: |
       set -eux
-      apt remove -y fastrpc* || true
+      apt purge -y hexagon-* fastrpc* || true
+      apt autoremove -y || true
 {{- end }}
 
   - action: run
