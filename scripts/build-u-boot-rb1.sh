@@ -72,6 +72,9 @@ git clone --depth=1 --branch "${GIT_BRANCH}" "${GIT_REPO}" u-boot
 
 cd u-boot
 
+log_i "Patching (${CONFIG}) for faster boot"
+sed -i 's/^CONFIG_BOOTDELAY=.*/CONFIG_BOOTDELAY=0/' "configs/${CONFIG}"
+
 log_i "Configuring U-Boot (${CONFIG})"
 make "${CONFIG}"
 
