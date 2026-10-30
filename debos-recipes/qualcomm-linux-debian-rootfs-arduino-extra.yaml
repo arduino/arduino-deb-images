@@ -162,6 +162,21 @@ actions:
       mv /etc/lightdm/lightdm.conf.new /etc/lightdm/lightdm.conf
 
   - action: run
+    description: Keep the lightdm greeter off the audio devices
+    chroot: true
+    command: |
+      set -eux
+      # The greeter runs its own PipeWire/WirePlumber, which probes every new USB sound
+      # card and claims Bluetooth transports alongside the arduino session, leaving the
+      # latter with partial card profiles (e.g. a headset without microphone).
+      # Masking both the services and the sockets prevents socket activation too.
+      mkdir -p /var/lib/lightdm/.config/systemd/user
+      for unit in pipewire.service pipewire.socket wireplumber.service pipewire-pulse.service pipewire-pulse.socket; do
+          ln -sf /dev/null /var/lib/lightdm/.config/systemd/user/$unit
+      done
+      chown -R lightdm:lightdm /var/lib/lightdm/.config
+
+  - action: run
     description: Remove workspaces widget and add App Lab to the dock
     chroot: true
     command: |
