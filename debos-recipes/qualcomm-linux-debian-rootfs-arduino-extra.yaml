@@ -349,6 +349,7 @@ actions:
     description: Find partitions minimal sizes
     command: |
       set -eux
+      MIN_SIZE=65536
       HOME_SIZE=`du -s $ROOTDIR/home/ | cut -f1`
       BOOT_SIZE=`du -s $ROOTDIR/boot/ | cut -f1`
       ROOT_SIZE=`du -s $ROOTDIR/ | cut -f1`
@@ -358,6 +359,7 @@ actions:
       ROOT_SIZE=$((ROOT_SIZE - BOOT_SIZE + HOME_SIZE))
 {{- end }}
       # Increase all sizes by 33% to leave some free space for journal
+      [ "$HOME_SIZE" -lt "$MIN_SIZE" ] && HOME_SIZE=$MIN_SIZE
       export HOME_SIZE=$((HOME_SIZE + HOME_SIZE / 3))KB
       export ROOT_SIZE=$((ROOT_SIZE + ROOT_SIZE / 3))KB
       export BOOT_SIZE=${BOOT_SIZE}KB
